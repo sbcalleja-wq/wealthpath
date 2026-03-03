@@ -430,62 +430,43 @@ export default function WealthPath() {
   const connectBrokerage = useCallback(async () => {
     setPlaidLoading(true);
     try {
-      // Step 1: Get a link token from our backend
+      // Step 1: Request link token (or sandbox shortcut)
       const linkRes = await fetch("/api/plaid-link", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId: profile.name || "anon" }),
+        body: JSON.stringify({ userId: profile.name || "anon", useSandboxShortcut: true }),
       });
-      const { link_token } = await linkRes.json();
+      const linkData = await linkRes.json();
+
+      // Sandbox shortcut: we got a public_token directly, skip the Link modal
+      if (linkData.sandbox_direct && linkData.public_token) {
+        try {
+          const holdRes = await fetch("/api/plaid-holdings", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ public_token: linkData.public_token }),
+          });
+          const data = await holdRes.json();
+          if (data.holdings) {
+            handlePlaidData(data);
+          }
+        } catch (e) { console.error("Sandbox holdings fetch failed:", e); }
+        setPlaidLoading(false);
+        return;
+      }
+
+      // Normal flow: open Plaid Link modal
+      const { link_token } = linkData;
       if (!link_token) { setPlaidLoading(false); return; }
 
-      // Step 2: Open Plaid Link modal
       const handler = window.Plaid.create({
         token: link_token,
-        onSuccess: async (public_token, metadata) => {
-          // Step 3: Exchange token and fetch holdings
+        onSuccess: async (public_token) => {
           try {
             const holdRes = await fetch("/api/plaid-holdings", {
               method: "POST", headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ public_token }),
             });
             const data = await holdRes.json();
-            if (data.holdings) {
-              setPlaidAccounts(data.accounts || []);
-              setPlaidHoldings(data.holdings || []);
-              setPlaidConnected(true);
-
-              // Update amount to real portfolio value
-              if (data.totalValue > 0) setAmount(Math.round(data.totalValue));
-
-              // Auto-detect account type from first account
-              const firstAcct = data.accounts?.[0];
-              if (firstAcct?.subtype) {
-                if (/ira/.test(firstAcct.subtype)) setAcct("traditional");
-                else if (/roth/.test(firstAcct.subtype)) setAcct("roth");
-                else if (/401/.test(firstAcct.subtype)) setAcct("traditional");
-                else setAcct("taxable");
-              }
-
-              // Try to match real holdings to our known assets and build custom portfolio
-              const matched = [];
-              const allKnown = [...Object.values(UNIVERSE).flat(), ...ALL_ASSETS];
-              const uniqueTickers = new Set();
-              for (const h of data.holdings) {
-                if (uniqueTickers.has(h.ticker)) continue;
-                const known = allKnown.find(a => a.ticker === h.ticker);
-                if (known && !uniqueTickers.has(known.ticker)) {
-                  uniqueTickers.add(known.ticker);
-                  const weight = data.totalValue > 0 ? h.value / data.totalValue : 0;
-                  matched.push({ ...known, weight, alloc: Math.round(weight * 100), locked: false });
-                }
-              }
-              if (matched.length >= 2) setCustomHoldings(matched);
-
-              // Notify AI about the connection
-              setChatMsgs(prev => [...prev, { role: "assistant",
-                content: `${profile.name ? profile.name + ", this" : "This"} is awesome — I can see your real portfolio now! You've got ${data.holdings.length} holdings worth ${fmt(data.totalValue)} across ${data.accounts.length} account${data.accounts.length > 1 ? "s" : ""}. I've loaded everything in so we're working with your actual money now, not hypotheticals. Ask me anything — "how's my allocation look?" or "what would you change?" and I'll give you real answers about YOUR portfolio.`
-              }]);
-            }
+            if (data.holdings) handlePlaidData(data);
           } catch (e) { console.error("Holdings fetch failed:", e); }
           setPlaidLoading(false);
         },
@@ -497,6 +478,44 @@ export default function WealthPath() {
       setPlaidLoading(false);
     }
   }, [profile]);
+
+  // Shared handler for Plaid data
+  const handlePlaidData = useCallback((data) => {
+    setPlaidAccounts(data.accounts || []);
+    setPlaidHoldings(data.holdings || []);
+    setPlaidConnected(true);
+
+    if (data.totalValue > 0) setAmount(Math.round(data.totalValue));
+
+    const firstAcct = data.accounts?.[0];
+    if (firstAcct?.subtype) {
+      if (/roth/.test(firstAcct.subtype)) setAcct("roth");
+      else if (/ira|401/.test(firstAcct.subtype)) setAcct("traditional");
+      else setAcct("taxable");
+    }
+
+    // Match real holdings to our known assets
+    const matched = [];
+    const allKnown = [...Object.values(UNIVERSE).flat(), ...ALL_ASSETS];
+    const uniqueTickers = new Set();
+    for (const h of data.holdings) {
+      if (uniqueTickers.has(h.ticker)) continue;
+      const known = allKnown.find(a => a.ticker === h.ticker);
+      if (known && !uniqueTickers.has(known.ticker)) {
+        uniqueTickers.add(known.ticker);
+        const weight = data.totalValue > 0 ? h.value / data.totalValue : 0;
+        matched.push({ ...known, weight, alloc: Math.round(weight * 100), locked: false });
+      }
+    }
+    if (matched.length >= 2) setCustomHoldings(matched);
+
+    const unmatchedCount = data.holdings.filter(h => !allKnown.find(a => a.ticker === h.ticker)).length;
+
+    setChatMsgs(prev => [...prev, { role: "assistant",
+      content: `${profile.name ? profile.name + ", this" : "This"} is awesome — I can see your real portfolio now! You've got ${data.holdings.length} holdings worth ${fmt(data.totalValue)} across ${data.accounts.length} account${data.accounts.length > 1 ? "s" : ""}.${unmatchedCount > 0 ? ` (${unmatchedCount} holdings aren't in my database yet, but I can still see them.)` : ""} I've loaded everything in so we're working with your actual money now, not hypotheticals. Ask me anything — "how's my allocation look?" or "what would you change?" and I'll give you real answers about YOUR portfolio.`
+    }]);
+    if (!chatOpen) setChatOpen(true);
+  }, [profile, chatOpen]);
 
   const buildPortfolio = useCallback(async () => {
     setPage("results"); setTab("portfolio"); setPLoad(true); setCustomHoldings(null);
