@@ -510,25 +510,42 @@ export default function WealthPath() {
       else setAcct("taxable");
     }
 
-    // Match real holdings to our known assets
-    const matched = [];
+    // Build portfolio from ALL real holdings — match to our DB where possible
     const allKnown = [...Object.values(UNIVERSE).flat(), ...ALL_ASSETS];
+    const colors = ["#7EB8A2","#B8A07E","#A2C4D9","#D4A2A2","#C4B8D9","#D9C4A2","#A2D9B8","#D9A2C4","#8BC4A0","#D98A8A","#B8B0D9","#D9B87E","#D97EA2","#7EA8D9","#D9C48A","#A2B8D4","#C4D4A2","#D9D07E"];
+    const holdings = [];
     const uniqueTickers = new Set();
+    let colorIdx = 0;
+
     for (const h of data.holdings) {
       if (uniqueTickers.has(h.ticker)) continue;
+      uniqueTickers.add(h.ticker);
       const known = allKnown.find(a => a.ticker === h.ticker);
-      if (known && !uniqueTickers.has(known.ticker)) {
-        uniqueTickers.add(known.ticker);
-        const weight = data.totalValue > 0 ? h.value / data.totalValue : 0;
-        matched.push({ ...known, weight, alloc: Math.round(weight * 100), locked: false });
+      const weight = data.totalValue > 0 ? h.value / data.totalValue : 0;
+
+      if (known) {
+        // Known asset: use our enriched data (inside, expected returns, etc)
+        holdings.push({ ...known, weight, alloc: Math.round(weight * 100), locked: false,
+          livePrice: h.price, realQty: h.quantity, realValue: h.value, realCostBasis: h.costBasis });
+      } else {
+        // Unknown asset: create entry from Plaid data
+        holdings.push({
+          ticker: h.ticker, name: h.name, type: h.type === "equity" ? "Stock" : h.type === "etf" ? "ETF" : h.type === "mutual fund" ? "Fund" : "Other",
+          sector: "Unknown", expReturn: 0.08, vol: 0.20, div: 0.01, er: 0, color: colors[colorIdx % colors.length],
+          weight, alloc: Math.round(weight * 100), locked: false,
+          livePrice: h.price, realQty: h.quantity, realValue: h.value, realCostBasis: h.costBasis,
+          inside: { top: [h.name], role: `From your brokerage — ${h.quantity} shares @ $${h.price?.toFixed(2)}` },
+        });
+        colorIdx++;
       }
     }
-    if (matched.length >= 2) setCustomHoldings(matched);
+
+    if (holdings.length >= 1) setCustomHoldings(holdings.sort((a, b) => b.weight - a.weight));
 
     const unmatchedCount = data.holdings.filter(h => !allKnown.find(a => a.ticker === h.ticker)).length;
 
     setChatMsgs(prev => [...prev, { role: "assistant",
-      content: `${profile.name ? profile.name + ", this" : "This"} is awesome — I can see your real portfolio now! You've got ${data.holdings.length} holdings worth ${fmt(data.totalValue)} across ${data.accounts.length} account${data.accounts.length > 1 ? "s" : ""}.${unmatchedCount > 0 ? ` (${unmatchedCount} holdings aren't in my database yet, but I can still see them.)` : ""} I've loaded everything in so we're working with your actual money now, not hypotheticals. Ask me anything — "how's my allocation look?" or "what would you change?" and I'll give you real answers about YOUR portfolio.`
+      content: `${profile.name ? profile.name + ", this" : "This"} is awesome — I can see your real portfolio now! You've got ${data.holdings.length} holdings worth ${fmt(data.totalValue)} across ${data.accounts.length} account${data.accounts.length > 1 ? "s" : ""}.${unmatchedCount > 0 ? ` (${unmatchedCount} holding${unmatchedCount > 1 ? "s aren't" : " isn't"} in my analysis database yet, but I've loaded them all in so you can see everything.)` : ""} We're working with your actual money now. Ask me anything — "how's my allocation look?" or "what would you change?"`
     }]);
     if (!chatOpen) setChatOpen(true);
   }, [profile, chatOpen]);
@@ -1158,11 +1175,21 @@ ${mW>0?`<h2>Withdrawal Analysis</h2><div class="g3"><div class="bx"><div class="
                       <span style={{ fontSize: 10, color: "#8a7e6b" }}>{h.name}</span>
                     </div>
                     <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      {h.livePrice && <span style={{ fontSize: 10, color: "#8a7e6b" }}>${h.livePrice} × {h.shares}</span>}
+                      {plaidConnected && h.realQty ? (
+                        <span style={{ fontSize: 10, color: "#8a7e6b" }}>{h.realQty} shares @ ${h.livePrice?.toFixed(2)}</span>
+                      ) : h.livePrice ? (
+                        <span style={{ fontSize: 10, color: "#8a7e6b" }}>${h.livePrice} × {h.shares}</span>
+                      ) : null}
                       <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "'JetBrains Mono'", color: "#6b8f71", minWidth: 42, textAlign: "right" }}>{h.alloc}%</span>
-                      <span style={{ fontSize: 11, color: "#8a7e6b", minWidth: 65, textAlign: "right" }}>{fmt(h.dollarAmt)}</span>
+                      <span style={{ fontSize: 11, color: "#8a7e6b", minWidth: 65, textAlign: "right" }}>{fmt(plaidConnected && h.realValue ? h.realValue : h.dollarAmt)}</span>
                     </div>
                   </div>
+                  {/* Gain/loss for real holdings */}
+                  {plaidConnected && h.realCostBasis > 0 && h.realValue > 0 && (
+                    <div style={{ marginLeft: 12, marginBottom: 2, fontSize: 10, color: h.realValue >= h.realCostBasis ? "#4a6e50" : "#b04040" }}>
+                      {h.realValue >= h.realCostBasis ? "▲" : "▼"} {fmt(Math.abs(h.realValue - h.realCostBasis))} ({((h.realValue - h.realCostBasis) / h.realCostBasis * 100).toFixed(1)}%)
+                    </div>
+                  )}
                   {/* What's Inside */}
                   {insideData && (
                     <details style={{ marginLeft: 12, marginBottom: 4 }}>
