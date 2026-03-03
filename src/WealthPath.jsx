@@ -288,6 +288,8 @@ export default function WealthPath() {
 
   // Plaid brokerage connection
   const [plaidConnected, setPlaidConnected] = useState(false);
+  const [realHoldingsSnapshot, setRealHoldingsSnapshot] = useState(null); // snapshot of brokerage holdings before optimization
+  const [viewMode, setViewMode] = useState("optimized"); // "optimized" | "yours"
   const [plaidLoading, setPlaidLoading] = useState(false);
   const [plaidAccounts, setPlaidAccounts] = useState([]);
   const [plaidHoldings, setPlaidHoldings] = useState([]);
@@ -382,7 +384,7 @@ export default function WealthPath() {
       setRisk(Math.max(1, Math.min(10, avg)));
       setMeetMsgs([{ role: "assistant", content: "Okay cool, I've got a sense of how you feel about risk. But before I start crunching numbers, I wanna know who I'm actually working with here.\n\nWhat's your name?" }]);
       setMeetStep(0);
-      setPage("meet");
+      setPage("setup");
     }
   };
 
@@ -540,7 +542,10 @@ export default function WealthPath() {
       }
     }
 
-    if (holdings.length >= 1) setCustomHoldings(holdings.sort((a, b) => b.weight - a.weight));
+    const sorted = holdings.sort((a, b) => b.weight - a.weight);
+    setRealHoldingsSnapshot(sorted);
+    if (sorted.length >= 1) setCustomHoldings(sorted);
+    setViewMode("yours");
 
     const unmatchedCount = data.holdings.filter(h => !allKnown.find(a => a.ticker === h.ticker)).length;
 
@@ -831,16 +836,25 @@ ${mW>0?`<h2>Withdrawal Analysis</h2><div class="g3"><div class="bx"><div class="
           5 quick questions. Then we'll build you a real portfolio, run 1,000 market scenarios on it, and stick around to answer whatever's on your mind. Like having a smart friend who's great with money.
         </p>
 
-        <button className="fade-up fade-up-3" onClick={() => setPage("quiz")} style={{
-          padding: "16px 40px", borderRadius: 14, border: "none",
-          background: "linear-gradient(135deg, #6b8f71, #4a6e50)", color: "#fff",
-          fontSize: 17, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans'",
-          boxShadow: "0 6px 24px rgba(107,143,113,0.35)", transition: "transform 0.2s",
-        }}>Let's do this →</button>
+        <div className="fade-up fade-up-3" style={{ display: "flex", flexDirection: "column", gap: 12, alignItems: "center" }}>
+          <button onClick={() => setPage("quiz")} style={{
+            padding: "16px 40px", borderRadius: 14, border: "none", width: "100%", maxWidth: 340,
+            background: "linear-gradient(135deg, #6b8f71, #4a6e50)", color: "#fff",
+            fontSize: 17, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans'",
+            boxShadow: "0 6px 24px rgba(107,143,113,0.35)",
+          }}>I'm starting fresh →</button>
+
+          <button onClick={() => { setPage("setup"); }} style={{
+            padding: "14px 40px", borderRadius: 14, width: "100%", maxWidth: 340,
+            border: "2px solid #6b8f71", background: "rgba(255,255,255,0.7)", color: "#4a6e50",
+            fontSize: 16, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans'",
+          }}>I already invest — connect my account 🏦</button>
+          <div style={{ fontSize: 11, color: "#b5a892", marginTop: -4 }}>Link your Fidelity, Schwab, Vanguard, or other brokerage</div>
+        </div>
 
         <div className="fade-up fade-up-4" style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16, marginTop: 48 }}>
           {[
-            { icon: "🧠", title: "Knows YOU", desc: "Not generic advice — it learns your goals, fears, and personality" },
+            { icon: "🧠", title: "Knows YOU", desc: "Learns your goals, fears, and personality over time" },
             { icon: "🎲", title: "1,000 futures", desc: "We simulate a thousand versions of your financial future" },
             { icon: "💬", title: "Just ask", desc: "\"Add Tesla\", \"what if I retire at 60?\" — it just works" },
           ].map((f, i) => (
@@ -988,19 +1002,22 @@ ${mW>0?`<h2>Withdrawal Analysis</h2><div class="g3"><div class="bx"><div class="
           <div style={{ fontSize: 12, color: "#8a7e6b", marginTop: 2 }}>Score: {risk}/10 — <button onClick={() => { setPage("quiz"); setQuizIdx(0); setQuizAnswers([]); }} style={{ color: "#6b8f71", background: "none", border: "none", cursor: "pointer", textDecoration: "underline", fontSize: 12 }}>retake quiz</button></div>
         </div>
 
-        <h2 style={{ fontFamily: "'Source Serif 4'", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>{profile.name ? `Okay ${profile.name}, numbers time` : "Let's get the details"}</h2>
+        <h2 style={{ fontFamily: "'Source Serif 4'", fontSize: 20, fontWeight: 700, marginBottom: 16 }}>{profile.name ? `Okay ${profile.name}, two quick things` : "Just two things to get started"}</h2>
 
-        <div style={{ marginBottom: 20 }}><label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>Age</label><div style={{ display: "flex", alignItems: "center", gap: 12 }}><input type="range" min={25} max={85} value={age} onChange={e => setAge(+e.target.value)} style={{ flex: 1, accentColor: "#6b8f71" }} /><span style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Source Serif 4'", color: "#6b8f71", minWidth: 36, textAlign: "right" }}>{age}</span></div></div>
+        <div style={{ marginBottom: 20 }}><label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>How old are you?</label><div style={{ display: "flex", alignItems: "center", gap: 12 }}><input type="range" min={18} max={85} value={age} onChange={e => { setAge(+e.target.value); setHorizon(Math.max(3, Math.min(30, 67 - +e.target.value))); }} style={{ flex: 1, accentColor: "#6b8f71" }} /><span style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Source Serif 4'", color: "#6b8f71", minWidth: 36, textAlign: "right" }}>{age}</span></div><div style={{ fontSize: 10, color: "#b5a892", marginTop: 2 }}>Planning for {horizon} years (until ~age {age + horizon})</div></div>
 
-        <div style={{ marginBottom: 20 }}><label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>Investment amount</label><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>{[100000, 250000, 500000, 1000000].map(v => <button key={v} onClick={() => setAmount(v)} style={{ padding: "6px 12px", borderRadius: 7, border: amount === v ? "2px solid #6b8f71" : "1px solid #e8e4dd", background: amount === v ? "#f0f5f1" : "#fff", color: amount === v ? "#4a6e50" : "#8a7e6b", fontSize: 11, fontWeight: amount === v ? 600 : 500, cursor: "pointer", fontFamily: "'DM Sans'" }}>{fmt(v)}</button>)}<input type="number" value={amount} onChange={e => setAmount(Math.max(1000, +e.target.value))} style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #e8e4dd", fontSize: 12, width: 100, fontFamily: "'JetBrains Mono'", outline: "none" }} /></div></div>
+        <div style={{ marginBottom: 24 }}><label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>How much are you investing?</label><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>{[50000, 100000, 250000, 500000, 1000000].map(v => <button key={v} onClick={() => setAmount(v)} style={{ padding: "6px 12px", borderRadius: 7, border: amount === v ? "2px solid #6b8f71" : "1px solid #e8e4dd", background: amount === v ? "#f0f5f1" : "#fff", color: amount === v ? "#4a6e50" : "#8a7e6b", fontSize: 11, fontWeight: amount === v ? 600 : 500, cursor: "pointer", fontFamily: "'DM Sans'" }}>{fmt(v)}</button>)}<input type="number" value={amount} onChange={e => setAmount(Math.max(1000, +e.target.value))} style={{ padding: "5px 8px", borderRadius: 6, border: "1px solid #e8e4dd", fontSize: 12, width: 100, fontFamily: "'JetBrains Mono'", outline: "none" }} /></div></div>
 
-        <div style={{ marginBottom: 20 }}><label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>Account type</label><div style={{ display: "flex", flexDirection: "column", gap: 5 }}>{ACCTS.map(a => <button key={a.key} onClick={() => setAcct(a.key)} style={{ padding: "8px 12px", borderRadius: 8, textAlign: "left", border: acct === a.key ? "2px solid #6b8f71" : "1px solid #e8e4dd", background: acct === a.key ? "#f0f5f1" : "#fff", cursor: "pointer" }}><div style={{ fontSize: 12, fontWeight: 600, color: acct === a.key ? "#4a6e50" : "#2c2416" }}>{a.label}</div><div style={{ fontSize: 10, color: "#b5a892" }}>{a.desc}</div></button>)}</div></div>
+        <button onClick={buildPortfolio} style={{ width: "100%", padding: "14px", borderRadius: 11, border: "none", background: "linear-gradient(135deg, #6b8f71, #4a6e50)", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans'", boxShadow: "0 4px 16px rgba(107,143,113,0.3)", marginBottom: 12 }}>Build My Portfolio →</button>
 
-        <div style={{ marginBottom: 20 }}><label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>Time horizon</label><div style={{ display: "flex", alignItems: "center", gap: 12 }}><input type="range" min={3} max={30} value={horizon} onChange={e => setHorizon(+e.target.value)} style={{ flex: 1, accentColor: "#6b8f71" }} /><span style={{ fontSize: 20, fontWeight: 700, fontFamily: "'Source Serif 4'", color: "#6b8f71", minWidth: 55, textAlign: "right" }}>{horizon} yrs</span></div></div>
-
-        <div style={{ marginBottom: 24 }}><label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 4 }}>Monthly withdrawal (optional)</label><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>{[0, 1500, 2500, 4000].map(v => <button key={v} onClick={() => setMW(v)} style={{ padding: "6px 12px", borderRadius: 7, border: mW === v ? "2px solid #6b8f71" : "1px solid #e8e4dd", background: mW === v ? "#f0f5f1" : "#fff", color: mW === v ? "#4a6e50" : "#8a7e6b", fontSize: 11, fontWeight: mW === v ? 600 : 500, cursor: "pointer", fontFamily: "'DM Sans'" }}>{v === 0 ? "None" : fmt(v) + "/mo"}</button>)}</div></div>
-
-        <button onClick={buildPortfolio} style={{ width: "100%", padding: "13px", borderRadius: 11, border: "none", background: "linear-gradient(135deg, #6b8f71, #4a6e50)", color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans'", boxShadow: "0 4px 16px rgba(107,143,113,0.3)" }}>Build My Portfolio →</button>
+        <details style={{ marginTop: 4 }}>
+          <summary style={{ fontSize: 12, color: "#8a7e6b", cursor: "pointer", textAlign: "center" }}>More options (account type, horizon, withdrawals)</summary>
+          <div style={{ marginTop: 16, padding: "16px", background: "#fff", border: "1px solid #e8e4dd", borderRadius: 10 }}>
+            <div style={{ marginBottom: 16 }}><label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>Account type</label><div style={{ display: "flex", flexDirection: "column", gap: 4 }}>{ACCTS.map(a => <button key={a.key} onClick={() => setAcct(a.key)} style={{ padding: "7px 10px", borderRadius: 7, textAlign: "left", border: acct === a.key ? "2px solid #6b8f71" : "1px solid #e8e4dd", background: acct === a.key ? "#f0f5f1" : "#fff", cursor: "pointer" }}><span style={{ fontSize: 11, fontWeight: 600, color: acct === a.key ? "#4a6e50" : "#2c2416" }}>{a.label}</span> <span style={{ fontSize: 9, color: "#b5a892" }}>{a.desc}</span></button>)}</div></div>
+            <div style={{ marginBottom: 16 }}><label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>Time horizon</label><div style={{ display: "flex", alignItems: "center", gap: 12 }}><input type="range" min={3} max={30} value={horizon} onChange={e => setHorizon(+e.target.value)} style={{ flex: 1, accentColor: "#6b8f71" }} /><span style={{ fontSize: 16, fontWeight: 700, fontFamily: "'Source Serif 4'", color: "#6b8f71" }}>{horizon} yrs</span></div></div>
+            <div><label style={{ fontSize: 12, fontWeight: 600, display: "block", marginBottom: 4 }}>Monthly withdrawal</label><div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>{[0, 1500, 2500, 4000].map(v => <button key={v} onClick={() => setMW(v)} style={{ padding: "5px 10px", borderRadius: 6, border: mW === v ? "2px solid #6b8f71" : "1px solid #e8e4dd", background: mW === v ? "#f0f5f1" : "#fff", color: mW === v ? "#4a6e50" : "#8a7e6b", fontSize: 10, fontWeight: mW === v ? 600 : 500, cursor: "pointer", fontFamily: "'DM Sans'" }}>{v === 0 ? "None" : fmt(v) + "/mo"}</button>)}</div></div>
+          </div>
+        </details>
       </div>
     </div>
   );
@@ -1081,21 +1098,31 @@ ${mW>0?`<h2>Withdrawal Analysis</h2><div class="g3"><div class="bx"><div class="
                 }}>{plaidLoading ? "Connecting..." : "Connect Account"}</button>
               </div>
             ) : (
-              <div style={{ background: "#f0f5f1", border: "1px solid #c8dcc8", borderRadius: 12, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 16 }}>✅</span>
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#4a6e50" }}>Brokerage connected</div>
-                    <div style={{ fontSize: 10, color: "#6b8f71" }}>{plaidAccounts.map(a => a.name).join(", ")} — {plaidHoldings.length} holdings</div>
+              <div style={{ background: "#f0f5f1", border: "1px solid #c8dcc8", borderRadius: 12, padding: "12px 16px" }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    <span style={{ fontSize: 16 }}>✅</span>
+                    <div>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: "#4a6e50" }}>{plaidAccounts.map(a => a.name).join(", ")}</div>
+                      <div style={{ fontSize: 10, color: "#6b8f71" }}>{plaidHoldings.length} holdings • {fmt(amount)} total</div>
+                    </div>
                   </div>
                 </div>
-                <div style={{ display: "flex", gap: 6 }}>
-                  {plaidHoldings.filter(h => !([...Object.values(UNIVERSE).flat(), ...ALL_ASSETS].find(a => a.ticker === h.ticker))).length > 0 && (
-                    <div style={{ fontSize: 9, color: "#8a7e6b", background: "#fff", padding: "4px 8px", borderRadius: 5, border: "1px solid #e8e4dd" }}>
-                      {plaidHoldings.filter(h => !([...Object.values(UNIVERSE).flat(), ...ALL_ASSETS].find(a => a.ticker === h.ticker))).length} holdings not in our database
-                    </div>
-                  )}
-                </div>
+                {/* Yours vs Optimized toggle */}
+                {realHoldingsSnapshot && (
+                  <div style={{ display: "flex", gap: 0, marginTop: 10, background: "#e8e4dd", borderRadius: 8, padding: 2 }}>
+                    <button onClick={() => { setViewMode("yours"); setCustomHoldings(realHoldingsSnapshot); }} style={{
+                      flex: 1, padding: "8px 0", borderRadius: 7, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans'", transition: "all 0.2s",
+                      background: viewMode === "yours" ? "#fff" : "transparent", color: viewMode === "yours" ? "#2c2416" : "#8a7e6b",
+                      boxShadow: viewMode === "yours" ? "0 1px 4px rgba(0,0,0,0.1)" : "none",
+                    }}>Your Holdings</button>
+                    <button onClick={() => { setViewMode("optimized"); setCustomHoldings(null); }} style={{
+                      flex: 1, padding: "8px 0", borderRadius: 7, border: "none", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans'", transition: "all 0.2s",
+                      background: viewMode === "optimized" ? "#fff" : "transparent", color: viewMode === "optimized" ? "#4a6e50" : "#8a7e6b",
+                      boxShadow: viewMode === "optimized" ? "0 1px 4px rgba(0,0,0,0.1)" : "none",
+                    }}>✨ Our Recommendation</button>
+                  </div>
+                )}
               </div>
             )}
 
