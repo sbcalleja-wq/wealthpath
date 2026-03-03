@@ -430,7 +430,7 @@ export default function WealthPath() {
     setChatMsgs(prev => prev.length <= 1 ? [{ role: "assistant", content: greeting }] : prev);
     const tickers = optimize(risk, age, acct).holdings.map(h => h.ticker).join(", ");
     try {
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 500, tools: [{ type: "web_search_20250305", name: "web_search" }],
           messages: [{ role: "user", content: `Find current stock/ETF prices for: ${tickers}. Return ONLY JSON like {"AAPL":232.50}. Numbers only, no text.` }] }),
@@ -578,7 +578,7 @@ Important stuff:
 
     try {
       const history = [...chatMsgs, userMsg].slice(-10).map(m => ({ role: m.role, content: m.content }));
-      const res = await fetch("https://api.anthropic.com/v1/messages", {
+      const res = await fetch("/api/chat", {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "claude-sonnet-4-20250514", max_tokens: 800,
