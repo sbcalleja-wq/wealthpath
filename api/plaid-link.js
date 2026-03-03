@@ -1,6 +1,6 @@
-import { plaidClient } from './_plaid.js';
+const { plaidClient } = require('./_plaid.js');
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -10,8 +10,6 @@ export default async function handler(req, res) {
   try {
     const isSandbox = (process.env.PLAID_ENV || 'sandbox') === 'sandbox';
 
-    // In sandbox mode, create a public token directly with investment data
-    // because the default user_good credentials don't return investment holdings
     if (isSandbox && req.body.useSandboxShortcut) {
       const ptRes = await plaidClient.sandboxPublicTokenCreate({
         institution_id: 'ins_109508',
@@ -71,7 +69,6 @@ export default async function handler(req, res) {
       return res.json({ public_token: ptRes.data.public_token, sandbox_direct: true });
     }
 
-    // Normal flow: create a link token for Plaid Link modal
     const response = await plaidClient.linkTokenCreate({
       user: { client_user_id: req.body.userId || 'wealthpath-user-' + Date.now() },
       client_name: 'WealthPath',
@@ -87,6 +84,6 @@ export default async function handler(req, res) {
     return res.json({ link_token: response.data.link_token });
   } catch (error) {
     console.error('Link token error:', error?.response?.data || error.message);
-    return res.status(500).json({ error: 'Failed to create link token', details: error?.response?.data?.error_message });
+    return res.status(500).json({ error: 'Failed to create link token', details: error?.response?.data?.error_message || error.message });
   }
-}
+};
