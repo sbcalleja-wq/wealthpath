@@ -286,6 +286,12 @@ export default function WealthPath() {
   const [isMobile, setIsMobile] = useState(false);
   useEffect(() => { setIsMobile(window.innerWidth < 768); }, []);
 
+  // Plaid brokerage connection
+  const [plaidConnected, setPlaidConnected] = useState(false);
+  const [plaidLoading, setPlaidLoading] = useState(false);
+  const [plaidAccounts, setPlaidAccounts] = useState([]);
+  const [plaidHoldings, setPlaidHoldings] = useState([]);
+
   const port = useMemo(() => optimize(risk, age, acct), [risk, age, acct]);
 
   // Active holdings = custom if modified, otherwise optimized
@@ -419,6 +425,78 @@ export default function WealthPath() {
       setTimeout(() => setMeetMsgs(prev => [...prev, { role: "assistant", content: MEET_QS[ns](name) }]), 500);
     }
   }, [meetStep, profile, meetMsgs]);
+
+  /* ── Plaid Brokerage Connection ── */
+  const connectBrokerage = useCallback(async () => {
+    setPlaidLoading(true);
+    try {
+      // Step 1: Get a link token from our backend
+      const linkRes = await fetch("/api/plaid-link", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId: profile.name || "anon" }),
+      });
+      const { link_token } = await linkRes.json();
+      if (!link_token) { setPlaidLoading(false); return; }
+
+      // Step 2: Open Plaid Link modal
+      const handler = window.Plaid.create({
+        token: link_token,
+        onSuccess: async (public_token, metadata) => {
+          // Step 3: Exchange token and fetch holdings
+          try {
+            const holdRes = await fetch("/api/plaid-holdings", {
+              method: "POST", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ public_token }),
+            });
+            const data = await holdRes.json();
+            if (data.holdings) {
+              setPlaidAccounts(data.accounts || []);
+              setPlaidHoldings(data.holdings || []);
+              setPlaidConnected(true);
+
+              // Update amount to real portfolio value
+              if (data.totalValue > 0) setAmount(Math.round(data.totalValue));
+
+              // Auto-detect account type from first account
+              const firstAcct = data.accounts?.[0];
+              if (firstAcct?.subtype) {
+                if (/ira/.test(firstAcct.subtype)) setAcct("traditional");
+                else if (/roth/.test(firstAcct.subtype)) setAcct("roth");
+                else if (/401/.test(firstAcct.subtype)) setAcct("traditional");
+                else setAcct("taxable");
+              }
+
+              // Try to match real holdings to our known assets and build custom portfolio
+              const matched = [];
+              const allKnown = [...Object.values(UNIVERSE).flat(), ...ALL_ASSETS];
+              const uniqueTickers = new Set();
+              for (const h of data.holdings) {
+                if (uniqueTickers.has(h.ticker)) continue;
+                const known = allKnown.find(a => a.ticker === h.ticker);
+                if (known && !uniqueTickers.has(known.ticker)) {
+                  uniqueTickers.add(known.ticker);
+                  const weight = data.totalValue > 0 ? h.value / data.totalValue : 0;
+                  matched.push({ ...known, weight, alloc: Math.round(weight * 100), locked: false });
+                }
+              }
+              if (matched.length >= 2) setCustomHoldings(matched);
+
+              // Notify AI about the connection
+              setChatMsgs(prev => [...prev, { role: "assistant",
+                content: `${profile.name ? profile.name + ", this" : "This"} is awesome — I can see your real portfolio now! You've got ${data.holdings.length} holdings worth ${fmt(data.totalValue)} across ${data.accounts.length} account${data.accounts.length > 1 ? "s" : ""}. I've loaded everything in so we're working with your actual money now, not hypotheticals. Ask me anything — "how's my allocation look?" or "what would you change?" and I'll give you real answers about YOUR portfolio.`
+              }]);
+            }
+          } catch (e) { console.error("Holdings fetch failed:", e); }
+          setPlaidLoading(false);
+        },
+        onExit: () => setPlaidLoading(false),
+      });
+      handler.open();
+    } catch (e) {
+      console.error("Plaid link failed:", e);
+      setPlaidLoading(false);
+    }
+  }, [profile]);
 
   const buildPortfolio = useCallback(async () => {
     setPage("results"); setTab("portfolio"); setPLoad(true); setCustomHoldings(null);
@@ -564,7 +642,8 @@ Their money situation:
 ${fmt(amount)} invested, age ${age}, planning ${horizon} years out. Risk tolerance: ${risk}/10 (${RL[risk]}). Account: ${ACCTS.find(a=>a.key===acct)?.label}.${mW>0?` Pulling out ${fmt(mW)}/month.`:""}
 They own: ${hList}
 Numbers: ${pct(activeMetrics.aTax)} expected return, Sharpe ${activeMetrics.sharpe.toFixed(2)}, earning ${fmt(annDiv)}/yr in dividends.
-Monte Carlo says: ${(mcD.pGain*100).toFixed(0)}% chance of making money, median landing at ${fmt(mcD.pd[mcD.pd.length-1].p50)}.${mW>0?` Their withdrawal has a ${(wdD.sr*100).toFixed(0)}% chance of lasting 30 years.`:""}${goalCtx}${scenCtx}${lifeCtx}
+Monte Carlo says: ${(mcD.pGain*100).toFixed(0)}% chance of making money, median landing at ${fmt(mcD.pd[mcD.pd.length-1].p50)}.${mW>0?` Their withdrawal has a ${(wdD.sr*100).toFixed(0)}% chance of lasting 30 years.`:""}${plaidConnected ? `
+REAL BROKERAGE DATA: They connected their actual brokerage account. This is their REAL money, not hypothetical. Accounts: ${plaidAccounts.map(a => `${a.name} (${a.subtype}, ${fmt(a.balance)})`).join(", ")}. Real holdings: ${plaidHoldings.map(h => `${h.ticker}: ${h.quantity} shares @ $${h.price} = ${fmt(h.value)}`).join(", ")}. ${plaidHoldings.filter(h => !([...Object.values(UNIVERSE).flat(), ...ALL_ASSETS].find(a => a.ticker === h.ticker))).length > 0 ? `Note: some of their holdings (${plaidHoldings.filter(h => !([...Object.values(UNIVERSE).flat(), ...ALL_ASSETS].find(a => a.ticker === h.ticker))).map(h => h.ticker).join(", ")}) aren't in our analysis engine yet, so the portfolio view is partial.` : ""}` : ""}${goalCtx}${scenCtx}${lifeCtx}
 
 Important stuff:
 - Use their actual dollar amounts. "${fmt(amount)}" not "your portfolio." "${fmt(annDiv)} a year" not "dividend income."
@@ -593,7 +672,7 @@ Important stuff:
       setChatMsgs(prev => [...prev, { role: "assistant", content: "Connection hiccup — try again in a sec." }]);
     }
     setChatLoading(false);
-  }, [chatMsgs, chatLoading, hWP, age, risk, amount, horizon, acct, mW, activeMetrics, mcD, wdD, annDiv, isCustomized, profile, goals, voiceProfile, activeLifeEvent, activeHoldings, addHolding, removeHolding, updateWeight]);
+  }, [chatMsgs, chatLoading, hWP, age, risk, amount, horizon, acct, mW, activeMetrics, mcD, wdD, annDiv, isCustomized, profile, goals, voiceProfile, activeLifeEvent, activeHoldings, addHolding, removeHolding, updateWeight, plaidConnected, plaidAccounts, plaidHoldings]);
 
   const generatePDF = useCallback(() => {
     const today = new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
@@ -934,6 +1013,40 @@ ${mW>0?`<h2>Withdrawal Analysis</h2><div class="g3"><div class="bx"><div class="
         {/* PORTFOLIO */}
         {tab === "portfolio" && (
           <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+
+            {/* Plaid Connect Banner */}
+            {!plaidConnected ? (
+              <div style={{ background: "linear-gradient(135deg, #f0f5f1, #e8f0e8)", border: "1px solid #c8dcc8", borderRadius: 12, padding: "16px 20px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 }}>
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Source Serif 4'", color: "#2c2416", marginBottom: 2 }}>🏦 Connect your real brokerage</div>
+                  <div style={{ fontSize: 11, color: "#6b8f71", lineHeight: 1.5 }}>Link your Fidelity, Schwab, Vanguard, or other account. We'll analyze your actual holdings — not hypotheticals.</div>
+                </div>
+                <button onClick={connectBrokerage} disabled={plaidLoading} style={{
+                  padding: "10px 20px", borderRadius: 10, border: "none",
+                  background: plaidLoading ? "#b5a892" : "linear-gradient(135deg, #6b8f71, #4a6e50)",
+                  color: "#fff", fontSize: 13, fontWeight: 600, cursor: plaidLoading ? "wait" : "pointer",
+                  fontFamily: "'DM Sans'", boxShadow: "0 2px 8px rgba(107,143,113,0.25)", whiteSpace: "nowrap",
+                }}>{plaidLoading ? "Connecting..." : "Connect Account"}</button>
+              </div>
+            ) : (
+              <div style={{ background: "#f0f5f1", border: "1px solid #c8dcc8", borderRadius: 12, padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 16 }}>✅</span>
+                  <div>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#4a6e50" }}>Brokerage connected</div>
+                    <div style={{ fontSize: 10, color: "#6b8f71" }}>{plaidAccounts.map(a => a.name).join(", ")} — {plaidHoldings.length} holdings</div>
+                  </div>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {plaidHoldings.filter(h => !([...Object.values(UNIVERSE).flat(), ...ALL_ASSETS].find(a => a.ticker === h.ticker))).length > 0 && (
+                    <div style={{ fontSize: 9, color: "#8a7e6b", background: "#fff", padding: "4px 8px", borderRadius: 5, border: "1px solid #e8e4dd" }}>
+                      {plaidHoldings.filter(h => !([...Object.values(UNIVERSE).flat(), ...ALL_ASSETS].find(a => a.ticker === h.ticker))).length} holdings not in our database
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Pie + Live Metrics */}
             <div style={{ display: "grid", gridTemplateColumns: "minmax(0,1fr) minmax(0,1fr)", gap: 12 }}>
               <div style={{ background: "#fff", border: "1px solid #e8e4dd", borderRadius: 12, padding: 16 }}>
