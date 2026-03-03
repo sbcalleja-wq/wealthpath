@@ -436,26 +436,42 @@ export default function WealthPath() {
         body: JSON.stringify({ userId: profile.name || "anon", useSandboxShortcut: true }),
       });
       const linkData = await linkRes.json();
+      console.log("Plaid link response:", linkData);
+
+      // Error from API
+      if (linkData.error) {
+        setChatMsgs(prev => [...prev, { role: "assistant", content: `Having trouble connecting to the brokerage service — ${linkData.details || linkData.error}. This might be a config issue. Try again in a moment.` }]);
+        setChatOpen(true);
+        setPlaidLoading(false);
+        return;
+      }
 
       // Sandbox shortcut: we got a public_token directly, skip the Link modal
       if (linkData.sandbox_direct && linkData.public_token) {
-        try {
-          const holdRes = await fetch("/api/plaid-holdings", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ public_token: linkData.public_token }),
-          });
-          const data = await holdRes.json();
-          if (data.holdings) {
-            handlePlaidData(data);
-          }
-        } catch (e) { console.error("Sandbox holdings fetch failed:", e); }
+        const holdRes = await fetch("/api/plaid-holdings", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ public_token: linkData.public_token }),
+        });
+        const data = await holdRes.json();
+        console.log("Plaid holdings response:", data);
+        if (data.error) {
+          setChatMsgs(prev => [...prev, { role: "assistant", content: `Connected but couldn't fetch holdings — ${data.details || data.error}. Working on it.` }]);
+          setChatOpen(true);
+        } else if (data.holdings) {
+          handlePlaidData(data);
+        }
         setPlaidLoading(false);
         return;
       }
 
       // Normal flow: open Plaid Link modal
       const { link_token } = linkData;
-      if (!link_token) { setPlaidLoading(false); return; }
+      if (!link_token) {
+        setChatMsgs(prev => [...prev, { role: "assistant", content: "Couldn't start the connection flow. The brokerage service might be temporarily down." }]);
+        setChatOpen(true);
+        setPlaidLoading(false);
+        return;
+      }
 
       const handler = window.Plaid.create({
         token: link_token,
