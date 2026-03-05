@@ -120,19 +120,21 @@ const RL = ["","Very Conservative","Conservative","Moderately Conservative","Mod
 /* ═══════════════════════════════════════════
    CALCULATIONS
    ═══════════════════════════════════════════ */
-function optimize(risk, age, acct) {
-  const rk = risk <= 3 ? "conservative" : risk <= 6 ? "moderate" : "aggressive";
+function optimize(risk, age, acct, aggOverride = 0) {
+  // aggOverride: 0 = quiz default, 1-5 = progressively more aggressive
+  const effectiveRisk = Math.min(10, risk + aggOverride);
+  const rk = effectiveRisk <= 3 ? "conservative" : effectiveRisk <= 6 ? "moderate" : "aggressive";
   const a = UNIVERSE[rk];
   const sh = a.map(x => (x.expReturn - RF) / x.vol);
   const tS = sh.reduce((s, r) => s + Math.max(0, r), 0);
   let w = a.map((x, i) => {
     let v = Math.max(0, sh[i]) / tS;
-    if (risk <= 3 && x.sector === "Bonds") v *= 2.5;
-    if (risk <= 3 && x.div > 0.025) v *= 1.5;
-    if (risk >= 7 && x.vol > 0.2) v *= 1.4;
-    if (risk >= 7 && x.sector === "Bonds") v *= 0.3;
-    if (age >= 60 && x.div > 0.02) v *= 1.3;
-    if (age >= 60 && x.vol > 0.3) v *= 0.5;
+    if (effectiveRisk <= 3 && x.sector === "Bonds") v *= 2.5;
+    if (effectiveRisk <= 3 && x.div > 0.025) v *= 1.5;
+    if (effectiveRisk >= 7 && x.vol > 0.2) v *= (1.4 + aggOverride * 0.15);
+    if (effectiveRisk >= 7 && x.sector === "Bonds") v *= Math.max(0.05, 0.3 - aggOverride * 0.06);
+    if (age >= 60 && aggOverride === 0 && x.div > 0.02) v *= 1.3;
+    if (age >= 60 && aggOverride === 0 && x.vol > 0.3) v *= 0.5;
     if (acct === "taxable" && x.taxEff === "hi") v *= 1.2;
     if (acct === "taxable" && x.div > 0.03) v *= 0.85;
     if (acct === "traditional" && x.div > 0.03) v *= 1.2;
@@ -242,6 +244,7 @@ export default function WealthPath() {
   const [quizAnswers, setQuizAnswers] = useState([]);
   const [quizIdx, setQuizIdx] = useState(0);
   const [risk, setRisk] = useState(5);
+  const [aggOverride, setAggOverride] = useState(0); // 0=quiz default, 1-5=more aggressive
   const [age, setAge] = useState(58);
   const [amount, setAmount] = useState(500000);
   const [horizon, setHorizon] = useState(15);
@@ -294,7 +297,7 @@ export default function WealthPath() {
   const [plaidAccounts, setPlaidAccounts] = useState([]);
   const [plaidHoldings, setPlaidHoldings] = useState([]);
 
-  const port = useMemo(() => optimize(risk, age, acct), [risk, age, acct]);
+  const port = useMemo(() => optimize(risk, age, acct, aggOverride), [risk, age, acct, aggOverride]);
 
   // Active holdings = custom if modified, otherwise optimized
   const activeHoldings = useMemo(() => {
@@ -361,6 +364,7 @@ export default function WealthPath() {
 
   const resetToOptimized = useCallback(() => {
     setCustomHoldings(null);
+    setAggOverride(0);
   }, []);
   const mcD = useMemo(() => runMC(amount, activeMetrics.aTax, activeMetrics.vol, horizon), [amount, activeMetrics, horizon]);
   const wdD = useMemo(() => runWD(amount, activeMetrics.aTax, activeMetrics.vol, mW), [amount, activeMetrics, mW]);
@@ -1067,6 +1071,30 @@ ${mW>0?`<h2>Withdrawal Analysis</h2><div class="g3"><div class="bx"><div class="
             <button onClick={resetToOptimized} style={{ fontSize: 10, color: "#6b8f71", background: "none", border: "1px solid rgba(107,143,113,0.3)", borderRadius: 5, padding: "3px 10px", cursor: "pointer", fontFamily: "'DM Sans'", fontWeight: 600, whiteSpace: "nowrap", marginLeft: 8 }}>Reset to Optimized</button>
           </div>
         )}
+
+        {/* Growth Dial */}
+        {!plaidConnected || viewMode === "optimized" ? (
+          <div style={{ marginTop: 8, background: "#fff", border: "1px solid #e8e4dd", borderRadius: 10, padding: "12px 16px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+              <div style={{ fontSize: 12, fontWeight: 600, color: "#2c2416" }}>Growth dial</div>
+              <div style={{ fontSize: 11, color: aggOverride === 0 ? "#6b8f71" : aggOverride <= 2 ? "#b5897a" : "#c45e3e", fontWeight: 600 }}>
+                {aggOverride === 0 ? "Quiz default" : aggOverride === 1 ? "A bit more growth" : aggOverride === 2 ? "Growth-focused" : aggOverride === 3 ? "Aggressive" : aggOverride === 4 ? "Very aggressive" : "Maximum growth"}
+              </div>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <span style={{ fontSize: 10, color: "#8a7e6b", whiteSpace: "nowrap" }}>🛡️ Safe</span>
+              <input type="range" min={0} max={5} value={aggOverride} onChange={e => { setAggOverride(+e.target.value); setCustomHoldings(null); }} style={{ flex: 1, accentColor: aggOverride <= 1 ? "#6b8f71" : aggOverride <= 3 ? "#b5897a" : "#c45e3e" }} />
+              <span style={{ fontSize: 10, color: "#8a7e6b", whiteSpace: "nowrap" }}>🚀 Max</span>
+            </div>
+            {aggOverride > 0 && (
+              <div style={{ marginTop: 6, fontSize: 10, color: aggOverride <= 2 ? "#8a7e6b" : "#c45e3e", lineHeight: 1.5 }}>
+                {aggOverride <= 2
+                  ? `Tilting toward higher-growth assets. Expected return: ${pct(activeMetrics.aTax)} but volatility increases to ${pct(activeMetrics.vol)}.`
+                  : `You're accepting significantly more risk for higher potential returns. In a bad year, you could see a ${Math.round(activeMetrics.vol * 1.5 * 100)}%+ drawdown. Make sure you won't panic-sell.`}
+              </div>
+            )}
+          </div>
+        ) : null}
       </div>
 
       {/* Tabs */}
