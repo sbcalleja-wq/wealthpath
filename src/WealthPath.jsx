@@ -43,30 +43,50 @@ const QUIZ = [
 
 const UNIVERSE = {
   conservative: [
-    { ticker: "BND", name: "Vanguard Total Bond Market", type: "ETF", sector: "Bonds", expReturn: 0.042, vol: 0.05, div: 0.033, er: 0.03, taxEff: "low", color: "#7EB8A2",
-      inside: { count: "~10,000 bonds", top: ["US Treasury bonds (~45%)", "Mortgage-backed securities (~25%)", "Corporate investment-grade (~25%)"], role: "Your safety net — steady income, cushions stock drops" }},
+    // ETF core — stability + income
     { ticker: "SCHD", name: "Schwab US Dividend Equity", type: "ETF", sector: "Dividend", expReturn: 0.09, vol: 0.14, div: 0.035, er: 0.06, taxEff: "low", color: "#B8A07E",
       inside: { count: "~100 stocks", top: ["Coca-Cola, PepsiCo (staples)", "Pfizer, AbbVie (healthcare)", "Broadcom, TI (tech)"], role: "Cash machine — companies that consistently pay & grow dividends" }},
-    { ticker: "VTIP", name: "Vanguard Short-Term TIPS", type: "ETF", sector: "Inflation Protection", expReturn: 0.035, vol: 0.03, div: 0.045, er: 0.04, taxEff: "low", color: "#A2D9B8",
-      inside: { count: "~20 bonds", top: ["US Treasury Inflation-Protected Securities", "Short maturity (0-5 years)", "Principal adjusts with CPI"], role: "Inflation shield — purchasing power stays protected when prices rise" }},
+    { ticker: "BND", name: "Vanguard Total Bond Market", type: "ETF", sector: "Bonds", expReturn: 0.042, vol: 0.05, div: 0.033, er: 0.03, taxEff: "low", color: "#7EB8A2",
+      inside: { count: "~10,000 bonds", top: ["US Treasury bonds (~45%)", "Mortgage-backed securities (~25%)", "Corporate investment-grade (~25%)"], role: "Your safety net — steady income, cushions stock drops" }},
+    // High-Sharpe low-vol stocks — outperform on risk-adjusted basis
+    { ticker: "COST", name: "Costco Wholesale", type: "Stock", sector: "Consumer", expReturn: 0.12, vol: 0.18, div: 0.006, er: 0, taxEff: "hi", color: "#D97EA2",
+      inside: { top: ["Membership warehouse retail (~70M households)", "Kirkland private label, gas stations"], role: "93% renewal rate — recession-resistant, best Sharpe ratio of any stock" }},
+    { ticker: "BRK.B", name: "Berkshire Hathaway", type: "Stock", sector: "Diversified", expReturn: 0.10, vol: 0.17, div: 0, er: 0, taxEff: "hi", color: "#A2B8D4",
+      inside: { top: ["GEICO, BNSF Railway, Berkshire Energy", "Massive stock portfolio: Apple, BofA, Coca-Cola"], role: "Buffett's conglomerate — like a diversified fund with the greatest investor at the helm" }},
+    { ticker: "JNJ", name: "Johnson & Johnson", type: "Stock", sector: "Healthcare", expReturn: 0.075, vol: 0.14, div: 0.03, er: 0, taxEff: "low", color: "#D4A2A2",
+      inside: { top: ["Pharmaceuticals (~55%), MedTech (~30%)", "Brands: Tylenol, Band-Aid, Neutrogena"], role: "Healthcare defensive — 60+ years of consecutive dividend increases" }},
   ],
   moderate: [
+    // ETF core — broad market exposure
     { ticker: "VTI", name: "Vanguard Total Stock Market", type: "ETF", sector: "US Equity", expReturn: 0.10, vol: 0.16, div: 0.015, er: 0.03, taxEff: "hi", color: "#7EB8A2",
       inside: { count: "~3,700 stocks", top: ["Apple, Microsoft, NVIDIA (~15%)", "Amazon, Alphabet, Meta", "Plus thousands of mid & small caps"], role: "The whole US economy in one fund" }},
     { ticker: "VXUS", name: "Vanguard Total International", type: "ETF", sector: "Intl Equity", expReturn: 0.08, vol: 0.17, div: 0.03, er: 0.07, taxEff: "med", color: "#A2C4D9",
       inside: { count: "~8,500 stocks", top: ["Taiwan Semi, Samsung (Asia)", "Nestl\u00e9, LVMH (Europe)", "Emerging markets — India, Brazil, China"], role: "Global diversification — when the US stumbles, the world picks up slack" }},
     { ticker: "BND", name: "Vanguard Total Bond Market", type: "ETF", sector: "Bonds", expReturn: 0.042, vol: 0.05, div: 0.033, er: 0.03, taxEff: "low", color: "#D4A2A2",
       inside: { count: "~10,000 bonds", top: ["US Treasury bonds (~45%)", "Mortgage-backed (~25%)", "Corporate investment-grade (~25%)"], role: "Your stabilizer — barely moves when stocks drop 30%" }},
-    { ticker: "SCHD", name: "Schwab US Dividend Equity", type: "ETF", sector: "Dividend", expReturn: 0.09, vol: 0.14, div: 0.035, er: 0.06, taxEff: "low", color: "#B8A07E",
-      inside: { count: "~100 stocks", top: ["Coca-Cola, PepsiCo (staples)", "Pfizer, AbbVie (healthcare)", "Broadcom, TI (tech)"], role: "Income engine — decades of growing dividends" }},
+    // Top Sharpe stocks — add alpha without blowing up risk
+    { ticker: "COST", name: "Costco Wholesale", type: "Stock", sector: "Consumer", expReturn: 0.12, vol: 0.18, div: 0.006, er: 0, taxEff: "hi", color: "#D97EA2",
+      inside: { top: ["Membership warehouse (~70M households)", "Kirkland brand, 93% renewal rate"], role: "Best risk-adjusted stock we can find — steady growth, moderate volatility" }},
+    { ticker: "V", name: "Visa Inc.", type: "Stock", sector: "Financials", expReturn: 0.11, vol: 0.18, div: 0.008, er: 0, taxEff: "hi", color: "#B8B0D9",
+      inside: { top: ["Processes ~$15 trillion/year globally", "Takes a small cut of every card transaction"], role: "Toll booth on global spending — grows as the economy grows" }},
+    { ticker: "UNH", name: "UnitedHealth Group", type: "Stock", sector: "Healthcare", expReturn: 0.11, vol: 0.19, div: 0.015, er: 0, taxEff: "hi", color: "#D9A2C4",
+      inside: { top: ["Health insurance (UnitedHealthcare)", "Optum — data analytics, pharmacy, care delivery"], role: "Largest health insurer — aging population is a multi-decade tailwind" }},
   ],
   aggressive: [
-    { ticker: "VTI", name: "Vanguard Total Stock Market", type: "ETF", sector: "US Equity", expReturn: 0.10, vol: 0.16, div: 0.015, er: 0.03, taxEff: "hi", color: "#7EB8A2",
-      inside: { count: "~3,700 stocks", top: ["Apple, Microsoft, NVIDIA (~15%)", "Amazon, Alphabet, Meta", "Thousands of mid & small caps"], role: "Core US exposure — every public company, heavy on winners" }},
+    // ETF core — growth + diversification
     { ticker: "QQQ", name: "Invesco Nasdaq-100", type: "ETF", sector: "Tech Growth", expReturn: 0.13, vol: 0.22, div: 0.006, er: 0.20, taxEff: "hi", color: "#B8A07E",
       inside: { count: "100 stocks", top: ["Apple ~9%, Microsoft ~8%, NVIDIA ~7%", "Amazon, Broadcom, Meta ~5% each", "Zero financials — pure tech & innovation"], role: "Growth turbocharger — 100 largest non-financial Nasdaq companies" }},
+    { ticker: "VTI", name: "Vanguard Total Stock Market", type: "ETF", sector: "US Equity", expReturn: 0.10, vol: 0.16, div: 0.015, er: 0.03, taxEff: "hi", color: "#7EB8A2",
+      inside: { count: "~3,700 stocks", top: ["Apple, Microsoft, NVIDIA (~15%)", "Amazon, Alphabet, Meta", "Thousands of mid & small caps"], role: "Core US exposure — broad base under the growth bets" }},
+    // High-conviction growth stocks — best Sharpe in their vol range
+    { ticker: "MSFT", name: "Microsoft", type: "Stock", sector: "Technology", expReturn: 0.12, vol: 0.22, div: 0.008, er: 0, taxEff: "hi", color: "#D9C4A2",
+      inside: { top: ["Azure cloud (~25% revenue), Office 365, Windows", "LinkedIn, Xbox, GitHub, AI/OpenAI partnership"], role: "Enterprise software king — cloud growth + AI integration across everything" }},
+    { ticker: "LLY", name: "Eli Lilly", type: "Stock", sector: "Healthcare", expReturn: 0.14, vol: 0.28, div: 0.008, er: 0, taxEff: "hi", color: "#D9C48A",
+      inside: { top: ["Mounjaro/Zepbound (GLP-1 diabetes/weight loss)", "Alzheimer's treatments, insulin"], role: "GLP-1 drug boom — one of the fastest-growing drugs in history" }},
+    { ticker: "COST", name: "Costco Wholesale", type: "Stock", sector: "Consumer", expReturn: 0.12, vol: 0.18, div: 0.006, er: 0, taxEff: "hi", color: "#D97EA2",
+      inside: { top: ["Membership warehouse, Kirkland brand", "93% renewal rate, recession-resistant"], role: "Highest Sharpe ratio stock — anchors risk while others swing" }},
     { ticker: "VXUS", name: "Vanguard Total International", type: "ETF", sector: "Intl Equity", expReturn: 0.08, vol: 0.17, div: 0.03, er: 0.07, taxEff: "med", color: "#A2C4D9",
-      inside: { count: "~8,500 stocks", top: ["Taiwan Semi, Samsung (Asia)", "Nestl\u00e9, LVMH (Europe)", "Emerging markets — India, Brazil, China"], role: "Global reach — captures growth outside the US" }},
+      inside: { count: "~8,500 stocks", top: ["Taiwan Semi, Samsung (Asia)", "Nestl\u00e9, LVMH (Europe)", "Emerging markets — India, Brazil, China"], role: "Global reach — reduces US concentration risk" }},
   ],
 };
 
