@@ -313,8 +313,101 @@ export default function WealthPath() {
   const [plaidLoading, setPlaidLoading] = useState(false);
   const [plaidAccounts, setPlaidAccounts] = useState([]);
   const [plaidHoldings, setPlaidHoldings] = useState([]);
+  const [marketDataLoaded, setMarketDataLoaded] = useState(false);
+  const [sessionId] = useState(() => {
+    if (typeof window === 'undefined') return null;
+    let id = localStorage.getItem('wp_session');
+    if (!id) { id = 'wp_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); localStorage.setItem('wp_session', id); }
+    return id;
+  });
 
-  const port = useMemo(() => optimize(risk, age, acct), [risk, age, acct]);
+  // Auto-load session on mount
+  useEffect(() => {
+    if (!sessionId) return;
+    (async () => {
+      try {
+        const res = await fetch(`/api/load-session?id=${sessionId}`);
+        if (!res.ok) return;
+        const { data } = await res.json();
+        if (data) {
+          if (data.risk) setRisk(data.risk);
+          if (data.age) setAge(data.age);
+          if (data.amount) setAmount(data.amount);
+          if (data.horizon) setHorizon(data.horizon);
+          if (data.acct) setAcct(data.acct);
+          if (data.mW != null) setMW(data.mW);
+          if (data.profile?.name) setProfile(data.profile);
+          if (data.customHoldings) setCustomHoldings(data.customHoldings);
+          if (data.chatMsgs?.length > 0) setChatMsgs(data.chatMsgs);
+          if (data.voiceProfile) setVoiceProfile(data.voiceProfile);
+          if (data.plaidConnected) {
+            setPlaidConnected(true);
+            setPlaidAccounts(data.plaidAccounts || []);
+            setPlaidHoldings(data.plaidHoldings || []);
+            setRealHoldingsSnapshot(data.realHoldingsSnapshot);
+          }
+          // If they had a portfolio built, go straight to results
+          if (data.chatMsgs?.length > 0 || data.customHoldings) setPage("results");
+          console.log("Session restored:", sessionId);
+        }
+      } catch (e) { /* DB not configured — that's fine */ }
+    })();
+  }, [sessionId]);
+
+  // Auto-save session when key state changes (debounced)
+  useEffect(() => {
+    if (!sessionId || page === "landing") return;
+    const timer = setTimeout(async () => {
+      try {
+        await fetch("/api/save-session", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            sessionId,
+            data: { risk, age, amount, horizon, acct, mW, profile, customHoldings,
+              chatMsgs: chatMsgs.slice(-50), // keep last 50 messages
+              voiceProfile, plaidConnected, plaidAccounts, plaidHoldings, realHoldingsSnapshot },
+          }),
+        });
+      } catch (e) { /* DB not configured — that's fine */ }
+    }, 2000); // 2s debounce
+    return () => clearTimeout(timer);
+  }, [sessionId, risk, age, amount, horizon, acct, mW, profile, customHoldings, chatMsgs, voiceProfile, plaidConnected, page]);
+
+  // Fetch live market data on mount and override hardcoded estimates
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch("/api/market-data");
+        const data = await res.json();
+        if (data.tickers) {
+          // Override UNIVERSE entries with live data
+          for (const tier of Object.values(UNIVERSE)) {
+            for (const asset of tier) {
+              const live = data.tickers[asset.ticker];
+              if (live && live.expReturn && live.vol) {
+                asset.expReturn = live.expReturn;
+                asset.vol = live.vol;
+                if (live.price) asset.livePrice = live.price;
+              }
+            }
+          }
+          // Override ALL_ASSETS entries
+          for (const asset of ALL_ASSETS) {
+            const live = data.tickers[asset.ticker];
+            if (live && live.expReturn && live.vol) {
+              asset.expReturn = live.expReturn;
+              asset.vol = live.vol;
+              if (live.price) asset.livePrice = live.price;
+            }
+          }
+          setMarketDataLoaded(true);
+          console.log(`Market data loaded: ${Object.keys(data.tickers).length} tickers (${data.source})`);
+        }
+      } catch (e) { console.log("Market data fetch failed, using defaults:", e.message); }
+    })();
+  }, []);
+
+  const port = useMemo(() => optimize(risk, age, acct), [risk, age, acct, marketDataLoaded]);
 
   // Active holdings = custom if modified, otherwise optimized
   const activeHoldings = useMemo(() => {
@@ -580,8 +673,8 @@ export default function WealthPath() {
     // Auto-open chat with personalized greeting
     if (!isMobile) setChatOpen(true);
     const greeting = profile.name
-      ? `${profile.name}! Okay, your portfolio's done. I kept it tight — just ${optimize(risk, age, acct).holdings.length} core ETFs. No fluff, no random stock picks, just the stuff that actually moves the needle for someone in your situation.\n\nScroll through and check it out. If anything feels off or you wanna add something specific — like "throw some Tesla in there" or "get rid of bonds" — just tell me and I'll make it happen right now.`
-      : `Portfolio's ready! I went with ${optimize(risk, age, acct).holdings.length} focused ETFs — clean, simple, optimized for your risk level.\n\nWant me to walk you through it? Or if you already know what you want to change, just say the word — "add NVDA", "drop bonds", whatever. I'll handle it.`;
+      ? `${profile.name}! Okay, your portfolio's done. I kept it tight — just ${optimize(risk, age, acct).holdings.length} holdings optimized for your situation.\n\nScroll through and check it out. If anything feels off or you wanna add something specific — like "throw some Tesla in there" or "get rid of bonds" — just tell me and I'll make it happen right now.`
+      : `Your portfolio's ready! ${optimize(risk, age, acct).holdings.length} holdings, optimized for your risk level.\n\nBefore we dig in — what's your name? I'd love to make this feel less like talking to a robot and more like talking to someone who actually knows you.`;
     setChatMsgs(prev => prev.length <= 1 ? [{ role: "assistant", content: greeting }] : prev);
     const tickers = optimize(risk, age, acct).holdings.map(h => h.ticker).join(", ");
     try {
@@ -594,7 +687,7 @@ export default function WealthPath() {
       const text = data.content?.map(b => b.type === "text" ? b.text : "").join("") || "{}";
       const m = text.match(/\{[^}]+\}/);
       if (m) setPrices(JSON.parse(m[0]));
-    } catch {}
+    } catch (e) { console.log("Price fetch skipped:", e.message); }
     setPLoad(false);
   }, [risk, age, acct]);
 
@@ -729,7 +822,8 @@ Important stuff:
 - You can modify their portfolio. ${portfolioAction ? `You just ${portfolioAction.type === "add" ? `added ${portfolioAction.ticker}` : portfolioAction.type === "remove" ? `removed ${portfolioAction.name}` : portfolioAction.type === "increase" ? `bumped up ${portfolioAction.name}` : `dialed back ${portfolioAction.name}`}. Tell them what you did, what it means for their portfolio, and whether YOU personally think it's smart for them.` : "If they want changes, they happen automatically. You can also suggest moves — like \"honestly I'd add some international exposure, want me to throw in VXUS?\""}
 - NEVER use bullet points, numbered lists, or headers. Write in flowing sentences like a person.
 - Skip the financial disclaimer unless you're giving a genuinely big recommendation. And if you must, one casual sentence max at the very end — not a legal paragraph.
-- Keep responses tight. Say what matters. Don't pad.`;
+- Keep responses tight. Say what matters. Don't pad.
+${!profile.name ? `- ONBOARDING: You don't know this person's name yet. In your first response, naturally ask their name. Once they tell you, remember it. Then over the next 2-3 messages, casually learn: what they're investing for (goals), what worries them about money, and what their life situation is. Don't make it feel like a form — weave it into natural conversation about their portfolio. Example: after they tell you their name, you might say "Nice to meet you! So tell me — what's the big goal with this money?" Once you learn something, use [PROFILE_UPDATE:field:value] tags so the app can save it — like [PROFILE_UPDATE:name:Sarah] or [PROFILE_UPDATE:goals:saving for first house].` : ""}`;
 
 
     try {
@@ -743,7 +837,22 @@ Important stuff:
         }),
       });
       const data = await res.json();
-      const reply = data.content?.map(b => b.type === "text" ? b.text : "").join("") || "Sorry, I couldn't process that. Try again.";
+      let reply = data.content?.map(b => b.type === "text" ? b.text : "").join("") || "Sorry, I couldn't process that. Try again.";
+
+      // Parse PROFILE_UPDATE tags from AI response
+      const profileUpdates = reply.match(/\[PROFILE_UPDATE:(\w+):([^\]]+)\]/g);
+      if (profileUpdates) {
+        for (const tag of profileUpdates) {
+          const match = tag.match(/\[PROFILE_UPDATE:(\w+):([^\]]+)\]/);
+          if (match) {
+            const [, field, value] = match;
+            setProfile(prev => ({ ...prev, [field]: value }));
+          }
+        }
+        // Strip tags from displayed message
+        reply = reply.replace(/\[PROFILE_UPDATE:\w+:[^\]]+\]/g, '').trim();
+      }
+
       setChatMsgs(prev => [...prev, { role: "assistant", content: reply }]);
     } catch (e) {
       setChatMsgs(prev => [...prev, { role: "assistant", content: "Connection hiccup — try again in a sec." }]);
@@ -894,7 +1003,7 @@ ${mW>0?`<h2>Withdrawal Analysis</h2><div class="g3"><div class="bx"><div class="
       </div>
 
       <div style={{ textAlign: "center", padding: "20px", fontSize: 10, color: "#b5a892" }}>
-        WealthPath is for educational purposes only. Not financial advice. Consult a qualified advisor before investing.
+        WealthPath is for educational purposes only. Not financial advice. Consult a qualified advisor before investing. <a href="/privacy.html" style={{ color: "#b5a892", marginLeft: 8 }}>Privacy</a> · <a href="/terms.html" style={{ color: "#b5a892" }}>Terms</a>
       </div>
     </div>
   );
